@@ -1,5 +1,11 @@
 from typing import List
 from collections import deque
+import os 
+from dotenv import load_dotenv
+import openai
+load_dotenv()
+
+OPENAI_KEY = os.getenv('OPENAI_KEY')
 
 DEFAULT_CAPACITY = 1
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant"
@@ -11,12 +17,26 @@ INVALID_CAPACITY_HINT = "Invalid Capacity: Capacity must larger than zero!"
 INVALID_USER_CONTENT = "Invalid UserContent: UserContent can not be empty!"
 INVALID_ASSISTANT_CONTENT = "Invalid AssistantContent: AssistantContent can not be empty!"
 
+INVALID_MODEL_CONTENT = "Invalid Model: Can not find that model in openai model List."
+OPENAI_API_CONNECTION_ERROR_CONTENT = "OpenAI API Connection Error: Failed to establish a connection with the OpenAI API. Please check your internet connection and try again."
+
+openai.api_key = OPENAI_KEY
+
 class ChatInterface:
     def __init__(self) -> None:
+        """
+        Initializes the ChatInterface class.
+
+        Responsibilities:
+        - Sets default values for system prompt, maximum tokens, and memory capacity.
+        - Initializes an empty message queue for storing user and assistant messages.
+        - Initializes an empty model list cache.
+        """
         self.systemPrompt = DEFAULT_SYSTEM_PROMPT
         self.maxTokens = DEFAULT_MAX_TOKENS
         self.capacity = DEFAULT_CAPACITY
         self.messages = deque(maxlen=self.capacity)
+        self.modelListCache = []
 
     def SetMaxTokens(self, maxTokens: int) -> bool:
         """
@@ -112,3 +132,47 @@ class ChatInterface:
         messages.append({"role":"user", "content":newUserContent})
         return messages
 
+    def GetModelsApi(self) -> List[str]:
+        """
+        GetModelsApi retrieves the list of available OpenAI models.
+
+        :return: A list of strings representing the available model names.
+        :raises ConnectionError: If there is a connection error with the OpenAI API.
+        """
+        if self.modelListCache:
+            return self.modelListCache.copy()
+        self.modelListCache.clear()
+        try:
+            response = openai.Model.list()
+            for model in response["data"]:
+                if model["id"][:3] == "gpt":
+                    self.modelListCache.append(model["id"])
+            return self.modelListCache.copy()
+        except:
+            raise ConnectionError(OPENAI_API_CONNECTION_ERROR_CONTENT)
+
+    def SendChatApi(self, model:str, newUserContent) -> str:
+        """
+        SendChatApi sends a user message to the OpenAI Chat API and returns the assistant's response.
+
+        :param model: The name of the model to use for generating the response.
+        :param newUserContent: The content of the user's message.
+        :return: The content of the assistant's response.
+        :raises ValueError: If the specified model is invalid or not available or the newUserContent is empty.
+        :raises ConnectionError: If there is a connection error with the OpenAI API.
+        """
+        if model not in self.GetModelsApi() : 
+            raise ValueError(INVALID_MODEL_CONTENT)
+        if not newUserContent:
+            raise ValueError(INVALID_USER_CONTENT)
+        try:
+            completion = openai.ChatCompletion.create(
+                model=model,
+                messages= self.MessagePreprocess(newUserContent),
+                max_tokens = self.maxTokens,
+            )
+            assistantContent = completion.choices[0].message.content
+            self.AddMessageToMemory(newUserContent, assistantContent)            
+            return assistantContent
+        except:
+            raise ConnectionError(OPENAI_API_CONNECTION_ERROR_CONTENT)

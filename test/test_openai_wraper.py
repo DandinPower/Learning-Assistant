@@ -1,7 +1,17 @@
-from src.openai_wraper import ChatInterface
-from src.openai_wraper import DEFAULT_CAPACITY, DEFAULT_SYSTEM_PROMPT, DEFAULT_MAX_TOKENS
-from src.openai_wraper import INVALID_CAPACITY_HINT, INVALID_SYSTEM_PROMPT_HINT, INVALID_MAX_TOKENS_HINT, INVALID_USER_CONTENT, INVALID_ASSISTANT_CONTENT
 import pytest
+from src.openai_wraper import ChatInterface
+from src.openai_wraper import (
+    DEFAULT_CAPACITY,
+    DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_MAX_TOKENS,
+    INVALID_CAPACITY_HINT,
+    INVALID_SYSTEM_PROMPT_HINT,
+    INVALID_MAX_TOKENS_HINT,
+    INVALID_USER_CONTENT,
+    INVALID_ASSISTANT_CONTENT,
+    INVALID_MODEL_CONTENT,
+    OPENAI_API_CONNECTION_ERROR_CONTENT,
+)
 
 @pytest.fixture
 def interface():
@@ -150,6 +160,50 @@ def test_message_preprocess_multiple_memory(interface:ChatInterface):
         assert messages[1 + (index * 2) + 1]["role"] == "assistant"
         assert messages[1 + (index * 2) + 1]["content"] == assistantContent
 
-# test actual openai api
+def test_get_models_api(interface:ChatInterface):
+    modelList = interface.GetModelsApi()
+    assert len(modelList) != 0
+    for model in modelList:
+        assert type(model) == str
+        assert model[:3] == "gpt"
+
+def test_get_models_api_error(monkeypatch, interface:ChatInterface):
+    from src.openai_wraper import openai
+    def mock_model_list():
+        raise ConnectionError()
+    monkeypatch.setattr(openai.Model, "list", mock_model_list)
+    with pytest.raises(ConnectionError, match=OPENAI_API_CONNECTION_ERROR_CONTENT):
+        interface.GetModelsApi()
+
+def test_send_chat_api(interface:ChatInterface):
+    modelList = interface.GetModelsApi()
+    newUserContent = "Hello"
+    response = interface.SendChatApi(modelList[0], newUserContent)
+    assert type(response) == str
+    assert response != ""
+    messages = interface.GetMessagesFromMemory()
+    assert messages[-1]["userContent"] == newUserContent 
+    assert messages[-1]["assistantContent"] == response
+
+def test_send_chat_api_error(monkeypatch, interface:ChatInterface):
+    import openai
+    def mock_chat_completion_create():
+        raise ConnectionError()
+    monkeypatch.setattr(openai.ChatCompletion, "create", mock_chat_completion_create)
+    with pytest.raises(ConnectionError, match = OPENAI_API_CONNECTION_ERROR_CONTENT):
+        modelList = interface.GetModelsApi()
+        newUserContent = "Hello"
+        response = interface.SendChatApi(modelList[0], newUserContent)
+
+def test_invalid_model_in_send_chat_api(interface:ChatInterface):
+    with pytest.raises(ValueError, match = INVALID_MODEL_CONTENT):
+        interface.SendChatApi("132", "Hello")
+    with pytest.raises(ValueError, match = INVALID_MODEL_CONTENT):
+        interface.SendChatApi("", "Hello")
+
+def test_invalid_user_content_in_send_chat_api(interface:ChatInterface):
+    model = interface.GetModelsApi()[0]
+    with pytest.raises(ValueError, match = INVALID_USER_CONTENT):
+        interface.SendChatApi(model, "")
 
 # the other use unittest Mock openai api
